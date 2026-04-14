@@ -965,6 +965,7 @@
                 Suffix = properties.Suffix or "wtf";
                 Size = properties.Size or dim2(0, 620, 0, 471);
                 TabInfo;
+                MenuVisible = true;
                 Items = {};
             }
 
@@ -1151,6 +1152,7 @@
                 }); Library:Themify(Items.Glow, "glow", "ImageColor3")
             end
 
+            -- Drag
             do
                 local UIS = game:GetService("UserInputService")
                 local Dragging, DragInput, DragStart, StartPos
@@ -1188,19 +1190,20 @@
                 Library:Resizify(Items.Window)
             end
 
-            -- ToggleMenu: instant show/hide, no tween
-            function Cfg.ToggleMenu(bool) 
-                if Cfg.Tweening then return end 
-                Cfg.Tweening = true 
+            -- ToggleMenu: instant show/hide
+            function Cfg.ToggleMenu(bool)
+                if Cfg.Tweening then return end
+                Cfg.Tweening = true
+                Cfg.MenuVisible = bool
 
                 local Children = Items.Window:GetDescendants()
                 table.insert(Children, Items.Window)
 
-                for _,obj in Children do
+                for _, obj in Children do
                     local Index = Library:GetTransparency(obj)
                     if not Index then continue end
                     if type(Index) == "table" then
-                        for _,prop in Index do
+                        for _, prop in Index do
                             pcall(function() obj[prop] = bool and 0 or 1 end)
                         end
                     else
@@ -1210,7 +1213,97 @@
 
                 Items.Window.Visible = bool
                 Cfg.Tweening = false
-            end 
+            end
+
+            -- ── Desktop: Right Control toggles the menu ──────────────────────
+            Library:Connection(InputService.InputBegan, function(input, gameProcessed)
+                if gameProcessed then return end
+                if input.KeyCode == Enum.KeyCode.RightControl then
+                    Cfg.MenuVisible = not Cfg.MenuVisible
+                    Cfg.ToggleMenu(Cfg.MenuVisible)
+                end
+            end)
+
+            -- ── Mobile: floating side-tab toggle button ───────────────────────
+            if InputService.TouchEnabled then
+                local MobileOutline = Library:Create("TextButton", {
+                    Parent          = Library.Items;
+                    Name            = "\0";
+                    Text            = "";
+                    AutoButtonColor = false;
+                    AnchorPoint     = vec2(0, 0.5);
+                    Position        = dim2(0, 0, 0.5, 0);
+                    Size            = dim2(0, 36, 0, 72);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.inline;
+                    ZIndex          = 500;
+                })
+                Library:Create("UICorner", {
+                    Parent       = MobileOutline;
+                    CornerRadius = dim(0, 8);
+                })
+                Library:Themify(MobileOutline, "inline", "BackgroundColor3")
+
+                local MobileInline = Library:Create("Frame", {
+                    Parent          = MobileOutline;
+                    Name            = "\0";
+                    Position        = dim2(0, 1, 0, 1);
+                    Size            = dim2(1, -2, 1, -2);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.visible_backgrounds;
+                    ZIndex          = 501;
+                })
+                Library:Create("UICorner", {
+                    Parent       = MobileInline;
+                    CornerRadius = dim(0, 7);
+                })
+                Library:Themify(MobileInline, "visible_backgrounds", "BackgroundColor3")
+
+                -- Arrow icon: points right (▶) when menu hidden, left (◀) when visible
+                local MobileIcon = Library:Create("TextLabel", {
+                    Parent          = MobileInline;
+                    Name            = "\0";
+                    Text            = "◀";
+                    AnchorPoint     = vec2(0.5, 0.5);
+                    Position        = dim2(0.5, 0, 0.5, 0);
+                    Size            = dim2(0, 20, 0, 20);
+                    BackgroundTransparency = 1;
+                    BorderSizePixel = 0;
+                    FontFace        = Font.new("rbxassetid://12187365364", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+                    TextSize        = 16;
+                    TextColor3      = themes.preset.accent;
+                    ZIndex          = 502;
+                })
+                Library:Themify(MobileIcon, "accent", "TextColor3")
+
+                -- Accent bar on right edge
+                local MobileAccentBar = Library:Create("Frame", {
+                    Parent          = MobileOutline;
+                    Name            = "\0";
+                    AnchorPoint     = vec2(1, 0.5);
+                    Position        = dim2(1, 0, 0.5, 0);
+                    Size            = dim2(0, 3, 0.8, 0);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.accent;
+                    ZIndex          = 502;
+                })
+                Library:Create("UICorner", {
+                    Parent       = MobileAccentBar;
+                    CornerRadius = dim(0, 999);
+                })
+                Library:Themify(MobileAccentBar, "accent", "BackgroundColor3")
+
+                local function mobileToggle()
+                    Cfg.MenuVisible = not Cfg.MenuVisible
+                    Cfg.ToggleMenu(Cfg.MenuVisible)
+                    MobileIcon.Text = Cfg.MenuVisible and "◀" or "▶"
+                end
+
+                MobileOutline.MouseButton1Click:Connect(mobileToggle)
+                if MobileOutline.TouchTap then
+                    MobileOutline.TouchTap:Connect(mobileToggle)
+                end
+            end
 
             function Cfg.ChangeMenuTitle(text)
                 Items.UITitle.Text = text
