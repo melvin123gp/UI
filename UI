@@ -119,10 +119,303 @@
     local Notifications = Library.Notifications 
 --
 
+-- ============================================================
+-- GALAXY & STARS BACKGROUND SYSTEM
+-- ============================================================
+-- Creates an animated starfield + galaxy nebula overlay
+-- inside the window background using pure Roblox GUI objects.
+-- All animations run via RunService.Heartbeat (no TweenService).
+-- ============================================================
+
+local GalaxySystem = {}
+
+-- Star data: {frame, baseAlpha, twinkleSpeed, twinkleOffset, twinkleDir}
+local StarObjects = {}
+
+-- Nebula cloud data: {frame, angle, radius, speed, currentAngle}
+local NebulaObjects = {}
+
+-- Galaxy rotation angle accumulator
+local GalaxyAngle = 0
+
+function GalaxySystem:CreateStarfield(parent, windowW, windowH)
+    -- Fully transparent canvas that sits behind all UI
+    local canvas = Instance.new("Frame")
+    canvas.Name = "\0galaxy_canvas"
+    canvas.Size = dim2(1, 0, 1, 0)
+    canvas.Position = dim2(0, 0, 0, 0)
+    canvas.BackgroundTransparency = 1
+    canvas.ZIndex = 1
+    canvas.ClipsDescendants = true
+    canvas.Parent = parent
+
+    -- Deep space base gradient (dark navy → black)
+    local bgGrad = Instance.new("Frame")
+    bgGrad.Name = "\0bg_grad"
+    bgGrad.Size = dim2(1, 0, 1, 0)
+    bgGrad.BackgroundColor3 = rgb(4, 4, 14)
+    bgGrad.BackgroundTransparency = 0.05
+    bgGrad.BorderSizePixel = 0
+    bgGrad.ZIndex = 1
+    bgGrad.Parent = canvas
+
+    -- Galaxy nebula core (soft glowing center using nested frames)
+    local function makeNebulaLayer(color3, size, alpha, zidx)
+        local f = Instance.new("Frame")
+        f.AnchorPoint = vec2(0.5, 0.5)
+        f.Size = dim2(0, size, 0, size)
+        f.Position = dim2(0.5, 0, 0.45, 0)
+        f.BackgroundColor3 = color3
+        f.BackgroundTransparency = alpha
+        f.BorderSizePixel = 0
+        f.ZIndex = zidx
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = dim(0, 9999)
+        corner.Parent = f
+        f.Parent = canvas
+        return f
+    end
+
+    -- Layered soft nebula glows
+    local nebulaLayers = {
+        makeNebulaLayer(rgb(60, 0, 120),  280, 0.60, 2),  -- deep purple core
+        makeNebulaLayer(rgb(90, 0, 180),  200, 0.70, 3),  -- violet mid
+        makeNebulaLayer(rgb(140, 20, 200),120, 0.78, 4),  -- bright violet inner
+        makeNebulaLayer(rgb(200, 80, 255), 60, 0.82, 5),  -- pink-white center
+        makeNebulaLayer(rgb(255, 200, 255),24, 0.86, 6),  -- tiny white hot spot
+    }
+    GalaxySystem._nebulaLayers = nebulaLayers
+
+    -- Second nebula cloud (offset - gives two-arm galaxy feel)
+    local function makeSecondCloud(color3, size, alpha, ox, oy)
+        local f = Instance.new("Frame")
+        f.AnchorPoint = vec2(0.5, 0.5)
+        f.Size = dim2(0, size, 0, size)
+        f.Position = dim2(0.38, ox, 0.35, oy)
+        f.BackgroundColor3 = color3
+        f.BackgroundTransparency = alpha
+        f.BorderSizePixel = 0
+        f.ZIndex = 2
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = dim(0, 9999)
+        corner.Parent = f
+        f.Parent = canvas
+        return f
+    end
+    makeSecondCloud(rgb(0, 40, 120), 200, 0.72,  30,  20)
+    makeSecondCloud(rgb(0, 20, 80),  140, 0.78,  50,  40)
+    makeSecondCloud(rgb(20, 60, 160), 80, 0.84,  10,  10)
+
+    -- Third nebula (lower right, warm red-orange arm)
+    local function makeThirdCloud(color3, size, alpha, px, py)
+        local f = Instance.new("Frame")
+        f.AnchorPoint = vec2(0.5, 0.5)
+        f.Size = dim2(0, size, 0, size)
+        f.Position = dim2(0, px, 0, py)
+        f.BackgroundColor3 = color3
+        f.BackgroundTransparency = alpha
+        f.BorderSizePixel = 0
+        f.ZIndex = 2
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = dim(0, 9999)
+        corner.Parent = f
+        f.Parent = canvas
+        return f
+    end
+    -- Warm arm
+    makeThirdCloud(rgb(120, 20, 0),  180, 0.78, windowW * 0.72, windowH * 0.65)
+    makeThirdCloud(rgb(180, 60, 0),  100, 0.84, windowW * 0.70, windowH * 0.63)
+    makeThirdCloud(rgb(220, 100, 20), 50, 0.88, windowW * 0.68, windowH * 0.61)
+
+    -- Spiral arm particles (orbit around center)
+    local spiralCount = 18
+    local spiralArms = {}
+    for i = 1, spiralCount do
+        local armAngle = (i / spiralCount) * math.pi * 2
+        local armRadius = 40 + (i / spiralCount) * 120
+        local armSize = math.max(2, 7 - i * 0.25)
+        local armAlpha = 0.5 + (i / spiralCount) * 0.35
+        local f = Instance.new("Frame")
+        f.AnchorPoint = vec2(0.5, 0.5)
+        f.Size = dim2(0, armSize, 0, armSize)
+        f.BackgroundColor3 = (i % 3 == 0) and rgb(200, 120, 255) or
+                             (i % 3 == 1) and rgb(100, 160, 255) or rgb(255, 160, 200)
+        f.BackgroundTransparency = armAlpha
+        f.BorderSizePixel = 0
+        f.ZIndex = 3
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = dim(0, 9999)
+        corner.Parent = f
+        f.Parent = canvas
+        spiralArms[i] = {
+            frame  = f,
+            angle  = armAngle,
+            radius = armRadius,
+            speed  = 0.08 + (i / spiralCount) * 0.05,
+        }
+    end
+    GalaxySystem._spiralArms = spiralArms
+    GalaxySystem._spiralCX = 0.5  -- relative to canvas
+    GalaxySystem._spiralCY = 0.45
+
+    -- Stars: random positions, sizes, twinkle speeds
+    math.randomseed(os.clock() * 1000)
+    local starCount = 80
+    for i = 1, starCount do
+        local starSize  = math.random(1, 3)
+        local starAlpha = 0.1 + math.random() * 0.6
+        local twinkleSpd = 0.4 + math.random() * 1.2
+        local twinkleOff = math.random() * math.pi * 2
+        local starX = math.random(0, 100) / 100
+        local starY = math.random(0, 100) / 100
+        local brightness = math.random()
+        local starColor
+        if brightness > 0.75 then
+            starColor = rgb(255, 255, 255)
+        elseif brightness > 0.5 then
+            starColor = rgb(180, 200, 255)
+        elseif brightness > 0.25 then
+            starColor = rgb(255, 220, 180)
+        else
+            starColor = rgb(200, 180, 255)
+        end
+        local f = Instance.new("Frame")
+        f.AnchorPoint = vec2(0.5, 0.5)
+        f.Size = dim2(0, starSize, 0, starSize)
+        f.Position = dim2(starX, 0, starY, 0)
+        f.BackgroundColor3 = starColor
+        f.BackgroundTransparency = starAlpha
+        f.BorderSizePixel = 0
+        f.ZIndex = 4
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = dim(0, 9999)
+        corner.Parent = f
+        f.Parent = canvas
+        StarObjects[i] = {
+            frame        = f,
+            baseAlpha    = starAlpha,
+            twinkleSpeed = twinkleSpd,
+            twinkleOffset= twinkleOff,
+        }
+    end
+
+    -- A few large "bright star" crosses (plus sign shape)
+    local brightStars = {
+        {0.12, 0.18}, {0.82, 0.28}, {0.66, 0.72}, {0.32, 0.78}, {0.91, 0.55},
+    }
+    GalaxySystem._brightStarFrames = {}
+    for _, pos in brightStars do
+        local core = Instance.new("Frame")
+        core.AnchorPoint = vec2(0.5, 0.5)
+        core.Size = dim2(0, 4, 0, 4)
+        core.Position = dim2(pos[1], 0, pos[2], 0)
+        core.BackgroundColor3 = rgb(255, 255, 255)
+        core.BackgroundTransparency = 0.15
+        core.BorderSizePixel = 0
+        core.ZIndex = 5
+        local c1 = Instance.new("UICorner")
+        c1.CornerRadius = dim(0, 9999)
+        c1.Parent = core
+        core.Parent = canvas
+
+        -- Horizontal cross spike
+        local hSpike = Instance.new("Frame")
+        hSpike.AnchorPoint = vec2(0.5, 0.5)
+        hSpike.Size = dim2(0, 14, 0, 1)
+        hSpike.Position = dim2(pos[1], 0, pos[2], 0)
+        hSpike.BackgroundColor3 = rgb(200, 220, 255)
+        hSpike.BackgroundTransparency = 0.55
+        hSpike.BorderSizePixel = 0
+        hSpike.ZIndex = 5
+        hSpike.Parent = canvas
+
+        -- Vertical cross spike
+        local vSpike = Instance.new("Frame")
+        vSpike.AnchorPoint = vec2(0.5, 0.5)
+        vSpike.Size = dim2(0, 1, 0, 14)
+        vSpike.Position = dim2(pos[1], 0, pos[2], 0)
+        vSpike.BackgroundColor3 = rgb(200, 220, 255)
+        vSpike.BackgroundTransparency = 0.55
+        vSpike.BorderSizePixel = 0
+        vSpike.ZIndex = 5
+        vSpike.Parent = canvas
+
+        table.insert(GalaxySystem._brightStarFrames, {core = core, h = hSpike, v = vSpike, offset = math.random() * math.pi * 2})
+    end
+
+    GalaxySystem._canvas = canvas
+    GalaxySystem._windowW = windowW or 620
+    GalaxySystem._windowH = windowH or 471
+end
+
+-- Called every frame from RunService.Heartbeat
+function GalaxySystem:Update(dt)
+    local t = os.clock()
+    GalaxyAngle = GalaxyAngle + dt * 0.04  -- very slow galaxy rotation
+
+    -- Twinkle stars
+    for _, star in StarObjects do
+        local wave = math.sin(t * star.twinkleSpeed + star.twinkleOffset)
+        local alpha = star.baseAlpha + wave * 0.18
+        alpha = math.clamp(alpha, 0.05, 0.95)
+        star.frame.BackgroundTransparency = alpha
+    end
+
+    -- Bright star pulse
+    if GalaxySystem._brightStarFrames then
+        for _, bs in GalaxySystem._brightStarFrames do
+            local pulse = 0.1 + 0.08 * math.sin(t * 1.2 + bs.offset)
+            bs.core.BackgroundTransparency = pulse
+            bs.h.BackgroundTransparency   = 0.45 + 0.15 * math.sin(t * 0.9 + bs.offset)
+            bs.v.BackgroundTransparency   = 0.45 + 0.15 * math.sin(t * 0.9 + bs.offset)
+        end
+    end
+
+    -- Orbit spiral arm particles
+    if GalaxySystem._spiralArms then
+        local cx = GalaxySystem._spiralCX
+        local cy = GalaxySystem._spiralCY
+        for _, arm in GalaxySystem._spiralArms do
+            arm.angle = arm.angle + arm.speed * dt
+            local ax = cx + (arm.radius / GalaxySystem._windowW) * math.cos(arm.angle + GalaxyAngle)
+            local ay = cy + (arm.radius / GalaxySystem._windowH) * math.sin(arm.angle + GalaxyAngle) * 0.5
+            arm.frame.Position = dim2(ax, 0, ay, 0)
+        end
+    end
+
+    -- Slowly pulse nebula core layers
+    if GalaxySystem._nebulaLayers then
+        for i, layer in GalaxySystem._nebulaLayers do
+            local pulse = 0.005 * math.sin(t * 0.3 + i * 0.8)
+            local base  = 0.60 + (i - 1) * 0.065
+            layer.BackgroundTransparency = math.clamp(base + pulse, 0, 1)
+        end
+    end
+end
+
+-- Start the galaxy update loop
+function GalaxySystem:Start()
+    if GalaxySystem._connection then return end
+    GalaxySystem._connection = RunService.Heartbeat:Connect(function(dt)
+        GalaxySystem:Update(dt)
+    end)
+    table.insert(Library.Connections, GalaxySystem._connection)
+end
+
+function GalaxySystem:Stop()
+    if GalaxySystem._connection then
+        GalaxySystem._connection:Disconnect()
+        GalaxySystem._connection = nil
+    end
+    StarObjects   = {}
+    NebulaObjects = {}
+end
+
+-- ============================================================
+
 -- Library functions 
     -- Misc functions
 
-        -- Dummy tween object returned by Library:Tween so .Completed:Connect() never errors
         local function makeDummy()
             return {
                 Completed = {
@@ -153,7 +446,6 @@
             return nil
         end
 
-        -- No tween: apply properties instantly
         function Library:Tween(Object, Properties, _Info)
             for prop, value in Properties do
                 pcall(function() Object[prop] = value end)
@@ -161,7 +453,6 @@
             return makeDummy()
         end
 
-        -- No tween: apply visibility instantly
         function Library:Fade(obj, prop, vis, _speed)
             if not (obj and prop) then return makeDummy() end
             local OldTransparency = obj[prop]
@@ -374,9 +665,6 @@
                 local Name = file:gsub(Library.Directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(Library.Directory .. "\\configs\\", "")
                 List[#List + 1] = Name
             end
-            for _,v in List do 
-                print(_,v)
-            end 
             ConfigHolder.RefreshOptions(List)
         end
 
@@ -948,6 +1236,7 @@
         end
 
         function Library:Unload() 
+            GalaxySystem:Stop()
             if Library.Items then Library.Items:Destroy() end
             if Library.Other then Library.Other:Destroy() end
             for _,connection in Library.Connections do 
@@ -1017,6 +1306,17 @@
                     BackgroundColor3 = themes.preset.inline
                 }); Library:Themify(Items.Inline, "inline", "BackgroundColor3")
 
+                -- =====================================================
+                -- GALAXY BACKGROUND: inject into Items.Inline
+                -- Sits at ZIndex=1, below all other UI elements (ZIndex >= 2)
+                -- Window size offsets: 620x471 default
+                -- =====================================================
+                local winW = Cfg.Size.X.Offset - 2
+                local winH = Cfg.Size.Y.Offset - 2
+                GalaxySystem:CreateStarfield(Items.Inline, winW, winH)
+                GalaxySystem:Start()
+                -- =====================================================
+
                 Items.TabHolderFrame = Library:Create("Frame", {
                     Parent = Items.Inline;
                     Name = "\0";
@@ -1024,6 +1324,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(0, 139, 1, -2);
                     BorderSizePixel = 0;
+                    ZIndex = 3;
                     BackgroundColor3 = rgb(12, 14, 14)
                 });
 
@@ -1034,6 +1335,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(0, 1, 1, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 3;
                     BackgroundColor3 = themes.preset.inline
                 }); Library:Themify(Items.Filler, "inline", "BackgroundColor3")
 
@@ -1044,6 +1346,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, 0, 1, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 3;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
 
@@ -1065,8 +1368,13 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, -141, 1, -2);
                     BorderSizePixel = 0;
+                    ZIndex = 3;
+                    -- Semi-transparent so galaxy shows through slightly
                     BackgroundColor3 = themes.preset.background
                 }); Library:Themify(Items.PageHolder, "background", "BackgroundColor3")
+
+                -- Make PageHolder slightly transparent so galaxy peeks through
+                Items.PageHolder.BackgroundTransparency = 0.18
 
                 Items.TitleHolder = Library:Create("Frame", {
                     Parent = Items.PageHolder;
@@ -1075,6 +1383,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, 0, 0, 43);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
 
@@ -1085,6 +1394,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, 0, 0, 1);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = themes.preset.inline
                 }); Library:Themify(Items.Filler, "inline", "BackgroundColor3")
 
@@ -1101,7 +1411,7 @@
                     BackgroundTransparency = 1;
                     Position = dim2(0, 0, 0.5, 0);
                     FontFace = Font.new("rbxassetid://12187365364", Enum.FontWeight.Medium, Enum.FontStyle.Normal);
-                    ZIndex = 2;
+                    ZIndex = 5;
                     TextSize = 20;
                     BackgroundColor3 = rgb(255, 255, 255)
                 }); Library:Themify(Items.SectionTitle, "accent", "TextColor3")
@@ -1120,6 +1430,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, 0, 1, -43);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
 
@@ -1131,7 +1442,7 @@
                     Size = dim2(1, 0, 1, 0);
                     BorderSizePixel = 0;
                     BackgroundColor3 = rgb(17, 19, 19);
-                    ZIndex = 2;
+                    ZIndex = 4;
                 }); Library:Themify(Items.Fade, "background", "BackgroundColor3")
 
                 Items.Glow = Library:Create("ImageLabel", {
@@ -1188,7 +1499,6 @@
                 Library:Resizify(Items.Window)
             end
 
-            -- ToggleMenu: instant show/hide, no tween
             function Cfg.ToggleMenu(bool) 
                 if Cfg.Tweening then return end 
                 Cfg.Tweening = true 
@@ -1242,6 +1552,7 @@
                     Size = dim2(1, 0, 0, 30);
                     Selectable = false;
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
                 Items.Holder = Library:Create( "Frame" , {
@@ -1252,6 +1563,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, -13, 1, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = themes.preset.visible_backgrounds
                 }); Library:Themify(Items.Holder, "visible_backgrounds", "BackgroundColor3")
                 Items.Icon = Library:Create( "ImageLabel" , {
@@ -1265,6 +1577,7 @@
                     Position = dim2(0, 8, 0.5, 0);
                     Size = dim2(0, 14, 0, 14);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 }); Library:Themify(Items.Icon, "deselected", "ImageColor3"); Library:Themify(Items.Icon, "accent", "ImageColor3")
                 Items.SectionTitle = Library:Create( "TextLabel" , {
@@ -1279,7 +1592,7 @@
                     BackgroundTransparency = 1;
                     Position = dim2(0, 22, 0.5, 0);
                     BorderSizePixel = 0;
-                    ZIndex = 2;
+                    ZIndex = 4;
                     TextSize = 14;
                     BackgroundColor3 = rgb(12, 14, 14)
                 }); Library:Themify(Items.SectionTitle, "text_color", "TextColor3") Library:Themify(Items.SectionTitle, "deselected", "TextColor3") 
@@ -1301,6 +1614,7 @@
                     Position = dim2(0, 0, 0.5, 0);
                     Size = dim2(0, 2, 0, 19);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 }); Library:Themify(Items.Indicator, "accent", "ImageColor3")                
                 Items.Pages = Library:Create( "Frame" , {
@@ -1311,6 +1625,7 @@
                     BorderColor3 = rgb(0, 0, 0);
                     Size = dim2(1, 0, 1, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
                 Library:Create( "UIListLayout" , {
@@ -1340,6 +1655,7 @@
                     BackgroundColor3 = rgb(255, 255, 255);
                     BorderColor3 = rgb(0, 0, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     CanvasSize = dim2(0, 0, 0, 0)
                 });
                 Library:Create( "UIListLayout" , {
@@ -1360,6 +1676,7 @@
                     BackgroundColor3 = rgb(255, 255, 255);
                     BorderColor3 = rgb(0, 0, 0);
                     BorderSizePixel = 0;
+                    ZIndex = 4;
                     CanvasSize = dim2(0, 0, 0, 0)
                 });
                 Library:Create( "UIListLayout" , {
@@ -1370,7 +1687,6 @@
                 });                
             end 
 
-            -- Tab switching: instant, no tween
             function Cfg.OpenTab() 
                 local Tab = self.TabInfo
                 if Tab then
@@ -1579,7 +1895,6 @@
                 Library:Create( "UICorner" , { Parent = Items.Circle; CornerRadius = dim(0, 999) });
             end;
             
-            -- Instant toggle, no tween
             function Cfg.Set(bool)
                 Flags[Cfg.Flag] = bool
                 Cfg.Callback(bool or false)
@@ -1929,7 +2244,6 @@
                 return Button
             end
             
-            -- Instant open/close, no tween - arrow rotation instant
             function Cfg.SetVisible(bool)
                 Items.DropdownElements.Position = dim2(0, Items.Outline.AbsolutePosition.X, 0, Items.Outline.AbsolutePosition.Y + 80)
                 Items.DropdownElements.Size = dim_offset(Items.Outline.AbsoluteSize.X + 1, 0)
@@ -2469,7 +2783,6 @@
         end
         
         function Notifications:FadeNotifs(path, is_fading)
-            -- instant hide/show
             local transparency = is_fading and 1 or 0
             pcall(function() path.BackgroundTransparency = transparency end)
             for _, instance in path:GetDescendants() do 
